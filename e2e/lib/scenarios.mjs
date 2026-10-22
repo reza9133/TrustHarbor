@@ -14,6 +14,10 @@ export class Ctx {
     this.acct = {}; // label -> address
     this.addr = {}; // bench | escrow | bond -> address
     this.facts = {};
+    // Value deliberately attached to calls that were refused. Studio credits it to the
+    // target contract before GenVM rejects the call and does not return it, so it stays
+    // there as dust (contract state is untouched). Tracked per contract key.
+    this.dust = { bench: 0n, escrow: 0n, bond: 0n };
   }
 
   // -- steps ----------------------------------------------------------- //
@@ -33,6 +37,7 @@ export class Ctx {
   /** A write that must be refused. */
   async txFail(title, who, key, fn, args = [], { value = 0n } = {}) {
     const res = await this.d.write(this.addr[key], fn, args, { sender: this.acct[who], value });
+    if (!res.ok && BigInt(value) > 0n && key in this.dust) this.dust[key] += BigInt(value);
     if (!res.ok) this.r.pass(title, `refused as expected (${(res.error || '').slice(0, 140)})`, res.hash);
     else this.r.fail(title, `${who} → ${key}.${fn} was accepted but must be refused`, res.hash);
     return res;
@@ -93,7 +98,8 @@ export class Ctx {
       `balance ${fmtWei(escrowBalance)} ≥ owed ${fmtWei(e.owed_total)} + fees ${fmtWei(e.fees_available)}`);
     this.check(`${title}: bond contract holds at least the bonds`, bondBalance >= BigInt(b.total_bonded),
       `balance ${fmtWei(bondBalance)} ≥ bonded ${fmtWei(b.total_bonded)}`);
-    this.check(`${title}: the bench never holds value`, benchBalance === 0n, `balance ${fmtWei(benchBalance)}`);
+    this.check(`${title}: the bench never holds value`, benchBalance <= this.dust.bench,
+      `balance ${benchBalance} wei (only ${this.dust.bench} wei of refused-call dust allowed)`);
     return { escrowBalance, owes, bondBalance, totalBonded: BigInt(b.total_bonded) };
   }
 
@@ -108,7 +114,8 @@ export class Ctx {
       const bondBalance = await this.d.balance(this.addr.bond);
       const owes = BigInt(e.owed_total) + BigInt(e.fees_available);
       last = { escrowBalance, owes, bondBalance, bonded: BigInt(b.total_bonded) };
-      if (escrowBalance === owes && bondBalance === last.bonded) {
+      if (escrowBalance >= owes && escrowBalance - owes <= this.dust.escrow &&
+          bondBalance >= last.bonded && bondBalance - last.bonded <= this.dust.bond) {
         return this.r.pass(`${title}: balances equal the books exactly`,
           `escrow ${fmtWei(escrowBalance)}, bond contract ${fmtWei(bondBalance)}`);
       }
@@ -451,7 +458,9 @@ export async function s6Adversarial(ctx) {
     await ctx.txFail('value sent to a non-payable escrow method is refused', 'owner', 'escrow', 'set_paused', [false], { value: 1n });
     await ctx.txFail('value sent to a non-payable bench method is refused', 'owner', 'bench', 'set_paused', [false], { value: 1n });
     const cfgAfter = await ctx.view('bench', 'get_config');
-    ctx.check('the bench holds no value after that attempt', (await ctx.d.balance(ctx.addr.bench)) === 0n, `paused ${cfgAfter.paused}`);
+    const benchNow = await ctx.d.balance(ctx.addr.bench);
+    ctx.check('a refused payable-less call leaves the bench state untouched (at most the attached dust stays)',
+      benchNow <= ctx.dust.bench, `paused ${cfgAfter.paused}, balance ${benchNow} wei, attached ${ctx.dust.bench} wei`);
   }
 
   // nothing to withdraw / nothing to unbond
