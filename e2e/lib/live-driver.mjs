@@ -5,21 +5,57 @@ import * as chains from 'genlayer-js/chains';
 import { TransactionStatus } from 'genlayer-js/types';
 import { errorText, lc, normaliseArgs, sleepMs } from './util.mjs';
 
-const BAD_EXECUTION = new Set(['FINISHED_WITH_ERROR']);
+const BAD_EXECUTION = new Set(['FINISHED_WITH_ERROR', 'ERROR']);
 const BAD_STATUS = new Set(['UNDETERMINED', 'CANCELED', 'LEADER_TIMEOUT', 'VALIDATORS_TIMEOUT']);
 const BAD_RESULT = new Set(['NO_MAJORITY', 'MAJORITY_DISAGREE', 'DISAGREE', 'TIMEOUT', 'DETERMINISTIC_VIOLATION']);
+// numeric forms (Studio can return the enum numbers instead of names)
+const BAD_RESULT_NUM = new Set(['2', '3', '4', '5', '7']);
+// GenVM result kinds that mean "the call did not complete normally" (revert / rollback / crash)
+const BAD_GENVM_STATUS = new Set(['rollback', 'contract_error', 'error', 'no_leaders']);
 
-/** Reads success / failure out of a GenLayer transaction receipt. */
+/**
+ * Reads success / failure out of a GenLayer transaction receipt.
+ *
+ * Important: on Studionet a reverted call is still a transaction that reaches
+ * ACCEPTED / FINALIZED. genlayer-js does NOT fill txExecutionResultName or
+ * resultName for Studio receipts, so the failure is only visible in
+ * consensus_data.leader_receipt[0] (execution_result === "ERROR" and
+ * result.status === "rollback" | "contract_error" | "error").
+ */
 export function judgeReceipt(receipt) {
-  const status = receipt?.statusName ?? receipt?.status;
-  const exec = receipt?.txExecutionResultName;
-  const result = receipt?.resultName;
-  const bad = BAD_EXECUTION.has(exec) || BAD_STATUS.has(String(status)) || BAD_RESULT.has(String(result));
-  let detail = `status=${status ?? '?'} exec=${exec ?? '?'} consensus=${result ?? '?'}`;
-  const leader = receipt?.consensus_data?.leader_receipt?.[0];
+  const status = receipt?.statusName ?? receipt?.status_name ?? receipt?.status;
+  const exec =
+    receipt?.txExecutionResultName ??
+    (receipt?.txExecutionResult === 2 || receipt?.tx_execution_result === 2 ? 'FINISHED_WITH_ERROR' : undefined);
+  const result = receipt?.resultName ?? receipt?.result_name;
+  const resultNum = receipt?.result !== undefined && typeof receipt.result !== 'object' ? String(receipt.result) : '';
+
+  const leaders = receipt?.consensus_data?.leader_receipt;
+  const leader = Array.isArray(leaders) ? leaders[0] : leaders;
+  const leaderExec = leader?.execution_result ?? leader?.executionResult;
+  const leaderKind = leader?.result?.status;
+
+  const reasons = [];
+  if (BAD_EXECUTION.has(exec)) reasons.push(`exec=${exec}`);
+  if (BAD_STATUS.has(String(status))) reasons.push(`status=${status}`);
+  if (BAD_RESULT.has(String(result)) || (!result && BAD_RESULT_NUM.has(resultNum))) reasons.push(`consensus=${result ?? resultNum}`);
+  if (BAD_EXECUTION.has(String(leaderExec))) reasons.push(`leader=${leaderExec}`);
+  if (BAD_GENVM_STATUS.has(String(leaderKind))) reasons.push(`result=${leaderKind}`);
+  const bad = reasons.length > 0;
+
+  let detail = `status=${status ?? '?'} exec=${exec ?? leaderExec ?? '?'} consensus=${result ?? (resultNum || '?')}`;
+  if (leaderKind) detail += ` result=${leaderKind}`;
   if (bad && leader) {
-    const text = leader.stderr || leader.result?.payload?.readable || JSON.stringify(leader.result ?? '');
+    const payload = leader.result?.payload;
+    const text =
+      (typeof payload === 'string' ? payload : payload?.readable) ||
+      leader.genvm_result?.stderr ||
+      leader.stderr ||
+      JSON.stringify(leader.result ?? '');
     if (text) detail += ` · ${String(text).replace(/\s+/g, ' ').slice(0, 200)}`;
+  }
+  if (process.env.E2E_DEBUG_RECEIPT) {
+    console.error(`[receipt ${bad ? 'BAD' : 'ok'}]`, JSON.stringify(receipt, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)).slice(0, 2000));
   }
   return { ok: !bad, detail };
 }
