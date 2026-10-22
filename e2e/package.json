@@ -1,0 +1,17 @@
+{
+  "name": "trustharbor-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Live end-to-end run of the TrustHarbor contracts on GenLayer Studionet, with a live-updating report",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "e2e": "node run.mjs",
+    "e2e:serve": "node run.mjs --serve",
+    "e2e:local": "node run.mjs --local",
+    "check": "node --check run.mjs && node --check lib/scenarios.mjs && node --check lib/live-driver.mjs && node --check lib/local-driver.mjs && node --check lib/report.mjs && node --check lib/util.mjs"
+  },
+  "dependencies": {
+    "genlayer-js": "^1.1.8"
+  }
+}
