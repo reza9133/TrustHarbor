@@ -1,0 +1,30 @@
+name: e2e-studionet
+
+# Manual live end-to-end run on GenLayer Studionet. The Markdown report is
+# shown on the run summary page and the full report is uploaded as an artifact.
+# (If this folder is not the repository root, move .github/ to the root and add
+#  `working-directory: TrustHarbor/e2e` to the steps below.)
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Live run on Studionet
+        run: node run.mjs
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: e2e/report/
