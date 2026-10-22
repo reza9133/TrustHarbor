@@ -1,0 +1,15 @@
+{
+  "name": "TrustHarbor (GenLayer Studionet)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" }
+  },
+  "postCreateCommand": "npm --prefix e2e install --no-audit --no-fund || npm --prefix TrustHarbor/e2e install --no-audit --no-fund",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Live E2E report", "onAutoForward": "openBrowser" }
+  },
+  "customizations": {
+    "vscode": { "extensions": ["ms-python.python"] }
+  }
+}
