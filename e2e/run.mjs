@@ -96,7 +96,8 @@ async function main() {
   const cfg = {
     feeBps: 250,
     penaltyBps: 2000,
-    appealWindow: 60,
+    // live transactions take tens of seconds each; the window must outlast the S5 steps that run inside it
+    appealWindow: Number(process.env.E2E_APPEAL_WINDOW || (args.local ? 60 : 150)),
     reviewWindow: 900,
     unbondDelay: 60,
     terms: 'Deliver a complete 4k logo pack as PNG and SVG files.',
