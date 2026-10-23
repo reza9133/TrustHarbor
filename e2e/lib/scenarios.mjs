@@ -37,6 +37,11 @@ export class Ctx {
   /** A write that must be refused. */
   async txFail(title, who, key, fn, args = [], { value = 0n } = {}) {
     const res = await this.d.write(this.addr[key], fn, args, { sender: this.acct[who], value });
+    if (res.infra) {
+      // a network failure is not a refusal: report it instead of passing
+      this.r.fail(title, `inconclusive, network error (rerun): ${(res.error || '').slice(0, 140)}`, res.hash);
+      return res;
+    }
     if (!res.ok && BigInt(value) > 0n && key in this.dust) this.dust[key] += BigInt(value);
     if (!res.ok) this.r.pass(title, `refused as expected (${(res.error || '').slice(0, 140)})`, res.hash);
     else this.r.fail(title, `${who} → ${key}.${fn} was accepted but must be refused`, res.hash);

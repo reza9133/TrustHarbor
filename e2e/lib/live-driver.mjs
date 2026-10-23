@@ -13,6 +13,27 @@ const BAD_RESULT_NUM = new Set(['2', '3', '4', '5', '7']);
 // GenVM result kinds that mean "the call did not complete normally" (revert / rollback / crash)
 const BAD_GENVM_STATUS = new Set(['rollback', 'contract_error', 'error', 'no_leaders']);
 
+// Network hiccups (gateway returns an HTML error page instead of JSON, 429/5xx, resets, timeouts).
+// These say nothing about the contract and must never be mistaken for a refusal.
+const TRANSIENT = /<!DOCTYPE|Unexpected token '<'|is not valid JSON|unknown RPC error|\b(429|500|502|503|504)\b|bad gateway|service unavailable|gateway time-?out|too many requests|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|socket hang up|network error/i;
+// RPC methods that run BEFORE a transaction is sent: failing there means nothing was submitted, so a retry is safe.
+const PRE_SEND = /eth_(gasPrice|chainId|getBalance|getTransactionCount|estimateGas|blockNumber|call)|gen_(call|getContractSchema)/;
+export const isTransient = (text) => TRANSIENT.test(String(text || ''));
+
+async function retry(fn, { tries = 5, baseMs = 2000, canRetry = isTransient } = {}) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      last = error;
+      if (i === tries - 1 || !canRetry(errorText(error))) break;
+      await sleepMs(baseMs * (i + 1));
+    }
+  }
+  throw last;
+}
+
 /**
  * Reads success / failure out of a GenLayer transaction receipt.
  *
@@ -128,33 +149,43 @@ export class LiveDriver {
   async write(address, fn, args, { sender, value = 0n }) {
     let hash = '';
     try {
-      hash = await this.client.writeContract({
-        account: this.accountOf(sender),
-        address,
-        functionName: fn,
-        args: normaliseArgs(args),
-        value: BigInt(value),
-        leaderOnly: false,
-      });
-      const receipt = await this.client.waitForTransactionReceipt({
-        hash,
-        status: TransactionStatus.ACCEPTED,
-        interval: this.intervalMs,
-        retries: this.retries,
-      });
+      // retry only failures that happen before anything is sent (no duplicate transactions)
+      hash = await retry(
+        () =>
+          this.client.writeContract({
+            account: this.accountOf(sender),
+            address,
+            functionName: fn,
+            args: normaliseArgs(args),
+            value: BigInt(value),
+            leaderOnly: false,
+          }),
+        { canRetry: (t) => isTransient(t) && PRE_SEND.test(t) },
+      );
+      // waiting for the receipt is read-only: safe to retry on network errors
+      const receipt = await retry(() =>
+        this.client.waitForTransactionReceipt({
+          hash,
+          status: TransactionStatus.ACCEPTED,
+          interval: this.intervalMs,
+          retries: this.retries,
+        }),
+      );
       const verdict = judgeReceipt(receipt);
       return { ok: verdict.ok, hash, error: verdict.ok ? '' : verdict.detail, detail: verdict.detail };
     } catch (error) {
-      return { ok: false, hash, error: errorText(error), detail: errorText(error) };
+      const text = errorText(error);
+      // infra: the outcome is unknown (network failure), NOT a contract refusal
+      return { ok: false, infra: isTransient(text), hash, error: text, detail: text };
     }
   }
 
   async read(address, fn, args = []) {
-    return this.client.readContract({ address, functionName: fn, args: normaliseArgs(args) });
+    return retry(() => this.client.readContract({ address, functionName: fn, args: normaliseArgs(args) }));
   }
 
   async balance(address) {
-    return BigInt(await this.client.getBalance({ address }));
+    return BigInt(await retry(() => this.client.getBalance({ address })));
   }
 
   /** Real time passes on a real network. */
