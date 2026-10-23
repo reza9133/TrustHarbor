@@ -1,0 +1,213 @@
+live report: http://localhost:8080/  (in Codespaces open the forwarded port 8080)
+mode live · reports in /workspaces/TrustHarbor/e2e/report
+evidence: raw GitHub files of reza9133/TrustHarbor@main (the repository must be public and the files pushed)
+connected to studionet (chain id 61999) (https://studio.genlayer.com/api)
+
+=== S0  Setup: accounts, funding, deployment and wiring
+[PASS] account owner created and funded  — 0x460012C6e798a520b115B61eD7DdEaef0289BB76 with 1 GEN
+[PASS] account buyer created and funded  — 0x574c634d3C9f421053fD5468D114EB581b7deE6B with 5 GEN
+[PASS] account seller created and funded  — 0x5d03F6E73a6C05452d79aA04963b2C366955D4AD with 3 GEN
+[PASS] account seller2 created and funded  — 0xD4523348d6172316dda40774B47ea30EDa266F28 with 2 GEN
+[PASS] account outsider created and funded  — 0xe029295595e9c1CEAaa80C86e6180CA0481c457d with 1 GEN
+[PASS] ArbitrationBench deployed  — 0x61eDa77e6E12708375869ff5A1d36A055fD624A1
+[PASS] DealEscrow deployed  — 0x55F3198686d6AFBff674fa6F051a374B9A5A756C
+[PASS] MerchantBond deployed  — 0xa74e88F6381D442fb981e1F60c1C2430e34c99BD
+[PASS] each contract is owned by the deployer
+[PASS] DealEscrow is wired to the bench  — 0x61eDa77e6E12708375869ff5A1d36A055fD624A1
+[PASS] MerchantBond is wired to the escrow  — 0x55F3198686d6AFBff674fa6F051a374B9A5A756C
+[PASS] constructor parameters were applied  — appeal 150s, fee 250bps, review 900s, penalty 2000bps, unbond 60s
+[PASS] fresh deployment: escrow holds at least what it owes  — balance 0 GEN ≥ owed 0 GEN + fees 0 GEN
+[PASS] fresh deployment: bond contract holds at least the bonds  — balance 0 GEN ≥ bonded 0 GEN
+[PASS] fresh deployment: the bench never holds value  — balance 0 wei (only 0 wei of refused-call dust allowed)
+
+=== S1  An undisputed deal: fund → deliver → confirm → withdraw
+[PASS] buyer funds a 0.01 GEN deal  — buyer → escrow.open_deal
+[PASS] the new deal is FUNDED with the exact price  — deal 1: FUNDED, price 0.01 GEN
+[PASS] the price is escrowed (owed_total grew by exactly the price)  — owed 0 GEN → 0.01 GEN
+[PASS] after funding: escrow holds at least what it owes  — balance 0.01 GEN ≥ owed 0.01 GEN + fees 0 GEN
+[PASS] after funding: bond contract holds at least the bonds  — balance 0 GEN ≥ bonded 0 GEN
+[PASS] after funding: the bench never holds value  — balance 0 wei (only 0 wei of refused-call dust allowed)
+[PASS] seller declares delivery  — seller → escrow.mark_delivered
+[PASS] the deal is DELIVERED and the review clock runs
+[PASS] buyer confirms receipt  — buyer → escrow.confirm_receipt
+[PASS] the deal is RELEASED to the seller minus the platform fee  — seller 0.00975 GEN, fee 0.00025 GEN
+[PASS] seller withdraws 0.00975 GEN  — seller → escrow.withdraw
+[PASS] seller's claimable balance is zero after withdrawing  — left 0 GEN
+[WARN] seller receives the payout  — seller balance is 3 GEN, expected about 3.00975 GEN (payout not finalized yet?)
+[PASS] after the first payout: balances equal the books exactly  — escrow 0.00025 GEN, bond contract 0 GEN
+
+=== S2  A silent buyer: auto-release after the review window
+[PASS] owner shortens the review window for NEW deals to 60 s  — owner → escrow.set_review_window
+[PASS] buyer funds a deal that will go silent  — buyer → escrow.open_deal
+[PASS] the new deal is FUNDED with the exact price  — deal 2: FUNDED, price 0.01 GEN
+[PASS] seller declares delivery  — seller → escrow.mark_delivered
+[PASS] the deal copied the 60 s review window
+[PASS] nobody can release inside the review window  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · the buyer's review window is still open)
+[INFO] waiting 65s  — the buyer stays silent past the review window
+[PASS] a stranger releases the deal after the window  — outsider → escrow.release_after_review
+[PASS] the resolution is AUTO_RELEASE  — AUTO_RELEASE
+[PASS] seller withdraws 0.00975 GEN  — seller → escrow.withdraw
+[PASS] seller's claimable balance is zero after withdrawing  — left 0 GEN
+[WARN] seller receives the payout  — seller balance is 3 GEN, expected about 3.00975 GEN (payout not finalized yet?)
+[PASS] owner restores the review window  — owner → escrow.set_review_window
+
+=== S3  A seller who never delivers: full refund after the deadline
+[PASS] buyer funds a deal with a 60 s delivery window  — buyer → escrow.open_deal
+[PASS] the new deal is FUNDED with the exact price  — deal 3: FUNDED, price 0.01 GEN
+[PASS] the buyer cannot reclaim before the deadline  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · the delivery deadline has not passed yet)
+[INFO] waiting 65s  — the delivery deadline passes
+[PASS] the seller cannot deliver after the deadline  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · the delivery deadline has passed)
+[PASS] a stranger triggers the full refund  — outsider → escrow.reclaim_undelivered
+[PASS] the whole price goes back to the buyer with no fee  — REFUNDED, buyer 0.01 GEN
+[PASS] buyer withdraws 0.01 GEN  — buyer → escrow.withdraw
+[PASS] buyer's claimable balance is zero after withdrawing  — left 0 GEN
+[WARN] buyer receives the payout  — buyer balance is 4.97 GEN, expected about 4.98 GEN (payout not finalized yet?)
+
+=== S4  The seller refunds the buyer voluntarily
+[PASS] buyer funds a deal the seller will refund  — buyer → escrow.open_deal
+[PASS] the new deal is FUNDED with the exact price  — deal 4: FUNDED, price 0.01 GEN
+[PASS] seller refunds the buyer  — seller → escrow.refund_buyer
+[PASS] the deal is REFUNDED in full  — REFUNDED
+[PASS] a settled deal cannot be refunded twice  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · deal is REFUNDED, not FUNDED or DELIVERED)
+[PASS] buyer withdraws 0.01 GEN  — buyer → escrow.withdraw
+[PASS] buyer's claimable balance is zero after withdrawing  — left 0 GEN
+[WARN] buyer receives the payout  — buyer balance is 4.96 GEN, expected about 4.97 GEN (payout not finalized yet?)
+
+=== S5  A disputed deal: live AI ruling, settlement, bond compensation
+[PASS] owner lowers the trust threshold to 0.01 GEN  — owner → bond.set_trust_threshold
+[PASS] seller posts a 0.05 GEN bond  — seller → bond.post_bond
+[PASS] the bond is recorded and the seller is trusted  — bonded 0.05 GEN, trusted true
+[PASS] buyer funds a 0.05 GEN deal  — buyer → escrow.open_deal
+[PASS] the new deal is FUNDED with the exact price  — deal 5: FUNDED, price 0.05 GEN
+[PASS] seller declares delivery  — seller → escrow.mark_delivered
+[PASS] buyer opens a case on the bench using the dispute template  — buyer → bench.open_case
+[PASS] buyer attaches the case to the deal  — buyer → escrow.attach_case
+[PASS] the deal is DISPUTED and bound to that case  — case 1
+[PASS] the seller cannot refund their way out of a pending ruling  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · deal is DISPUTED, not FUNDED or DELIVERED)
+[PASS] a stranger cannot settle a deal that has no final ruling  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · the case is OPEN on the bench; settle after its FINAL ruling (or, for )
+[PASS] the case cannot be ruled while the respondent still has time to answer  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · the respondent still has time to answer)
+[PASS] only the respondent can answer the case  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the respondent can file a response)
+[PASS] a case that is not this deal's cannot be attached twice  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · deal is DISPUTED; a case can only be attached while it is DELIVERED)
+[PASS] seller files a response with their evidence  — seller → bench.respond
+[PASS] a stranger asks the bench to rule (attempt 1)  — outsider → bench.rule_case
+[INFO] the arbiter ruled  — claimant (buyer) share 100% · confidence 99 · "Standard required a complete 4k logo pack in PNG and SVG. Seller admits delivering only one 200x200 JPG, so the promised deliverables were not provided."
+[PASS] the ruling is a legal value  — share 100, confidence 99
+[PASS] a ruled case cannot be ruled again  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · case is RULED, not open for a ruling)
+[PASS] the deal cannot be settled during the appeal window  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · the case is RULED on the bench; settle after its FINAL ruling (or, for)
+[PASS] a ruled case cannot be withdrawn  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · case is RULED, not open)
+[INFO] waiting 155s  — the appeal window runs out and the ruling becomes final
+[PASS] a stranger settles the deal with the final ruling  — outsider → escrow.settle_deal
+[PASS] the deal is SETTLED by the ruling  — SETTLED/RULING
+[PASS] the split matches the ruled share exactly and loses no wei  — buyer 0.05 GEN (100%), seller 0 GEN, fee 0 GEN
+[PASS] a deal cannot be settled twice  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · deal is SETTLED, not DISPUTED)
+[PASS] the bond contract says the buyer may claim  — payable 0.01 GEN
+[PASS] only the deal's buyer can claim compensation  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the deal's buyer can claim compensation)
+[PASS] the seller cannot claim on the buyer's behalf  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the deal's buyer can claim compensation)
+[PASS] the buyer claims compensation from the seller's bond  — buyer → bond.claim_compensation
+[PASS] exactly the penalty was slashed and the seller has one strike  — bonded 0.04 GEN, strikes 1, slashed 0.01 GEN
+[PASS] a deal can only be claimed once  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · compensation for this deal was already claimed)
+[PASS] seller asks to unbond everything that is left  — seller → bond.request_unbond
+[INFO] waiting 65s  — the unbonding delay passes
+[PASS] the seller still cannot walk away right after an adverse ruling  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · a buyer may still claim against your bond until 1792993665)
+[PASS] seller cancels the unbond request  — seller → bond.cancel_unbond
+[PASS] buyer withdraws 0.05 GEN  — buyer → escrow.withdraw
+[PASS] buyer's claimable balance is zero after withdrawing  — left 0 GEN
+[WARN] buyer receives the payout  — buyer balance is 4.91 GEN, expected about 4.96 GEN (payout not finalized yet?)
+[PASS] after the dispute: escrow holds at least what it owes  — balance 0.0005 GEN ≥ owed 0 GEN + fees 0.0005 GEN
+[PASS] after the dispute: bond contract holds at least the bonds  — balance 0.04 GEN ≥ bonded 0.04 GEN
+[PASS] after the dispute: the bench never holds value  — balance 0 wei (only 0 wei of refused-call dust allowed)
+[PASS] after the dispute payouts: balances equal the books exactly  — escrow 0.0005 GEN, bond contract 0.04 GEN
+
+=== S6  Adversarial: hostile callers, inputs, ids and value
+[INFO] open_deal with empty terms  — transaction accepted, rejection returned in the result
+[INFO] open_deal with over-long terms (301 chars)  — transaction accepted, rejection returned in the result
+[INFO] open_deal with price below the minimum  — transaction accepted, rejection returned in the result
+[INFO] open_deal with seller is the buyer  — transaction accepted, rejection returned in the result
+[INFO] open_deal with zero-address seller  — transaction accepted, rejection returned in the result
+[INFO] open_deal with garbage seller  — transaction accepted, rejection returned in the result
+[INFO] open_deal with delivery window of 1 second  — transaction accepted, rejection returned in the result
+[PASS] none of the hostile deals was created  — deals 5 → 5
+[PASS] dust bonds are not recorded  — bonded 0.04 GEN
+[PASS] after refused deposits: escrow holds at least what it owes  — balance 0.0205 GEN ≥ owed 0 GEN + fees 0.0005 GEN
+[PASS] after refused deposits: bond contract holds at least the bonds  — balance 0.040000 GEN ≥ bonded 0.04 GEN
+[PASS] after refused deposits: the bench never holds value  — balance 0 wei (only 0 wei of refused-call dust allowed)
+[PASS] after refused deposits (refunds): balances equal the books exactly  — escrow 0.0005 GEN, bond contract 0.04 GEN
+[PASS] a stranger cannot call escrow.set_paused  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call escrow.set_fee_bps  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call escrow.set_review_window  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call escrow.withdraw_fees  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call escrow.transfer_ownership  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call bench.set_paused  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call bench.set_appeal_window  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call bench.transfer_ownership  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call bond.set_paused  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call bond.set_trust_threshold  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] a stranger cannot call bond.transfer_ownership  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · caller is not the owner)
+[PASS] ownership and settings are unchanged
+[PASS] buyer funds a deal naming the seller in upper-case hex  — buyer → escrow.open_deal
+[PASS] the new deal is FUNDED with the exact price  — deal 6: FUNDED, price 0.01 GEN
+[PASS] the seller address was normalised  — 0x5d03F6E73a6C05452d79aA04963b2C366955D4AD
+[PASS] a stranger cannot declare delivery  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the seller can mark a deal delivered)
+[PASS] the buyer cannot declare delivery for the seller  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the seller can mark a deal delivered)
+[PASS] a stranger cannot confirm receipt  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the buyer can confirm receipt)
+[PASS] the seller cannot confirm receipt for the buyer  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the buyer can confirm receipt)
+[PASS] a stranger cannot refund the buyer  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the seller can refund the buyer)
+[PASS] the seller (lower-case address) declares delivery  — seller → escrow.mark_delivered
+[PASS] delivery cannot be declared twice  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · deal is DELIVERED, not FUNDED)
+[PASS] a stranger cannot attach a case to the deal  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · only the buyer or the seller can attach a case)
+[PASS] a case that does not exist cannot be attached  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · case not found on the arbitration bench)
+[PASS] the buyer confirms and closes the deal  — buyer → escrow.confirm_receipt
+[PASS] seller withdraws 0.00975 GEN  — seller → escrow.withdraw
+[PASS] seller's claimable balance is zero after withdrawing  — left 0 GEN
+[WARN] seller receives the payout  — seller balance is 2.95 GEN, expected about 2.95975 GEN (payout not finalized yet?)
+[PASS] views answer "not found" for id -1
+[PASS] views answer "not found" for id 4294967296
+[PASS] views answer "not found" for id 1099511627776
+[PASS] views answer "not found" for id 1180591620717411303424
+[PASS] rule_case refuses an impossible id  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · unknown case_id)
+[PASS] settle_deal refuses a negative id  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · unknown deal_id)
+[PASS] claim_compensation refuses an impossible id  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · unknown deal_id on DealEscrow)
+[PASS] set_trust_threshold refuses a value beyond the storage width  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · threshold must be 0..1000000000000000000000000000000 wei)
+[PASS] value sent to a non-payable escrow method is refused  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=contract_error · exit_code 1)
+[PASS] value sent to a non-payable bench method is refused  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=contract_error · exit_code 1)
+[PASS] a refused payable-less call leaves the bench state untouched (at most the attached dust stays)  — paused false, balance 1 wei, attached 1 wei
+[PASS] a stranger has nothing to withdraw  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · nothing to withdraw)
+[PASS] a stranger has no bond to unbond  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · you have no bond)
+[PASS] a stranger cannot withdraw an unbond  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · no unbond request is pending)
+[PASS] a stranger opens a spam case naming the buyer (permissionless by design)  — outsider → bench.open_case
+[PASS] the stranger withdraws their own spam case  — outsider → bench.withdraw_case
+[PASS] after the hostile round: escrow holds at least what it owes  — balance 0.000750 GEN ≥ owed 0 GEN + fees 0.00075 GEN
+[PASS] after the hostile round: bond contract holds at least the bonds  — balance 0.04 GEN ≥ bonded 0.04 GEN
+[PASS] after the hostile round: the bench never holds value  — balance 1 wei (only 1 wei of refused-call dust allowed)
+[INFO] hostile round complete  — every refusal above is an expected revert
+
+=== S7  A seller with a clean record unbonds and leaves
+[PASS] a second seller posts a 0.02 GEN bond  — seller2 → bond.post_bond
+[PASS] the second seller is trusted
+[PASS] they cannot unbond more than they have  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · amount must be 1..20000000000000000 wei)
+[PASS] they request to unbond everything  — seller2 → bond.request_unbond
+[PASS] bond waiting to unbond no longer counts as trust
+[PASS] they cannot withdraw before the delay  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · the unbonding delay has not elapsed yet)
+[INFO] waiting 65s  — the unbonding delay passes
+[PASS] they withdraw the unbonded amount  — seller2 → bond.withdraw_unbonded
+[PASS] the bond is empty  — bonded 0 GEN
+[WARN] the seller receives the bond back  — seller2 balance is 1.98 GEN, expected about 2 GEN (payout not finalized yet?)
+[PASS] after the bond exit: escrow holds at least what it owes  — balance 0.000750 GEN ≥ owed 0 GEN + fees 0.00075 GEN
+[PASS] after the bond exit: bond contract holds at least the bonds  — balance 0.04 GEN ≥ bonded 0.04 GEN
+[PASS] after the bond exit: the bench never holds value  — balance 1 wei (only 1 wei of refused-call dust allowed)
+[PASS] after the bond exit: balances equal the books exactly  — escrow 0.000750 GEN, bond contract 0.04 GEN
+
+=== S8  Final books: solvency and fee sweep
+[PASS] nothing is owed once every deal is finished and every balance withdrawn (or only a pending deal remains)  — owed 0 GEN, deals 6, released 3, refunded 2, settled 1
+[INFO] platform fees accrued  — 0.00075 GEN
+[PASS] the owner cannot withdraw more than the accrued fees  — refused as expected (status=ACCEPTED exec=ERROR consensus=MAJORITY_AGREE result=rollback · amount must be 1..750000000000000 wei (currently withdrawable))
+[PASS] the owner withdraws the accrued fees  — owner → escrow.withdraw_fees
+[WARN] the owner receives the fees  — owner balance is 0.999999 GEN, expected about 1.000749 GEN (payout not finalized yet?)
+[PASS] final books: escrow holds at least what it owes  — balance 0.000000 GEN ≥ owed 0 GEN + fees 0 GEN
+[PASS] final books: bond contract holds at least the bonds  — balance 0.04 GEN ≥ bonded 0.04 GEN
+[PASS] final books: the bench never holds value  — balance 1 wei (only 1 wei of refused-call dust allowed)
+[PASS] final books: balances equal the books exactly  — escrow 0.000000 GEN, bond contract 0.04 GEN
+[INFO] bench statistics  — opened 2, ruled 1, appealed 0, withdrawn 1
+
+RESULT: 164 passed, 0 failed, 8 warnings, 0 skipped
+report server still running on port 8080; press Ctrl+C to stop
